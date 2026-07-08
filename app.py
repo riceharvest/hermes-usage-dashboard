@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 from collections import defaultdict
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -250,7 +250,17 @@ def main():
             st.subheader("📅 Date range")
             dmin = datetime.fromtimestamp(min(r.started_at for r in rows), tz=timezone.utc).date()
             dmax = datetime.fromtimestamp(max(r.started_at for r in rows), tz=timezone.utc).date()
-            rng = st.date_input("From / to", value=(dmin, dmax), min_value=dmin, max_value=dmax)
+            # Determine date range default value based on period selection
+            if period == "daily":
+                target_val = (dmax, dmax)
+            elif period == "weekly":
+                target_val = (max(dmin, dmax - timedelta(days=6)), dmax)
+            elif period == "monthly":
+                target_val = (max(dmin, dmax - timedelta(days=29)), dmax)
+            else:  # "all"
+                target_val = (dmin, dmax)
+
+            rng = st.date_input("From / to", value=target_val, min_value=dmin, max_value=dmax)
             auto_refresh = st.checkbox("Auto-refresh (60s)", value=False)
 
         autorefresh_handler(auto_refresh)
@@ -458,6 +468,8 @@ def main():
             sub = fdf[fdf["model"].isin(top_models)]
             piv = sub.pivot_table(index=pk, columns="model", values="cost_usd", aggfunc="sum").fillna(0)
             piv = piv.sort_index()
+            # Escape colons in column names to prevent Altair parsing crashes
+            piv.columns = [str(c).replace(":", " - ") for c in piv.columns]
             st.line_chart(piv, width="stretch")
             st.caption("Estimated cost (USD) per top model over time — narrow with the date-range filter.")
         else:
@@ -655,6 +667,8 @@ def main():
                 # keep top 12 models by total sessions, group rest as 'other'
                 top_models = fdf["model"].value_counts().head(12).index.tolist()
                 adopt_top = adopt[top_models] if all(m in adopt.columns for m in top_models) else adopt
+                # Escape colons in column names to prevent Altair parsing crashes
+                adopt_top.columns = [str(c).replace(":", " - ") for c in adopt_top.columns]
                 st.area_chart(adopt_top, width="stretch")
             else:
                 st.info("No adoption data to show.")
