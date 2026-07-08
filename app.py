@@ -722,11 +722,11 @@ def main():
                 st.markdown(f"☁️ **Provider**: `{row_data['Provider']}`")
                 st.markdown(f"🤖 **Model**: `{row_data['Model']}`")
             with col_d2:
-                st.markdown(f"📥 **Non-cached Input**: `{row_data['Non-cached in']:,}` tokens")
-                st.markdown(f"💾 **Cached Input**: `{row_data['Cached in']:,}` tokens")
-                st.markdown(f"📤 **Output**: `{row_data['Output']:,}` tokens")
+                st.markdown(f"📥 **Non-cached Input**: `{fmt_tokens(row_data['Non-cached in'])}` tokens")
+                st.markdown(f"💾 **Cached Input**: `{fmt_tokens(row_data['Cached in'])}` tokens")
+                st.markdown(f"📤 **Output**: `{fmt_tokens(row_data['Output'])}` tokens")
             with col_d3:
-                st.markdown(f"📊 **Total Tokens**: `{row_data['Total tok']:,}` tokens")
+                st.markdown(f"📊 **Total Tokens**: `{fmt_tokens(row_data['Total tok'])}` tokens")
                 st.markdown(f"💵 **Estimated Cost**: `{fmt_usd(row_data['Cost (OR)'])}`")
             
             # Quick Map Option
@@ -895,8 +895,8 @@ def main():
                     color_continuous_scale="Tealgrn",
                 )
                 fig.update_traces(
-                    texttemplate="<b>%{label}</b><br>$%{value:,.2f}",
-                    hovertemplate="<b>%{label}</b><br>Cost: $%{value:,.4f}<extra></extra>"
+                    texttemplate=f"<b>%{{label}}</b><br>{symbol}%{{value:,.2f}}",
+                    hovertemplate=f"<b>%{{label}}</b><br>Cost: {symbol}%{{value:,.4f}}<extra></extra>"
                 )
                 fig.update_layout(margin=dict(t=10, l=0, r=0, b=0))
                 st.plotly_chart(fig, width="stretch")
