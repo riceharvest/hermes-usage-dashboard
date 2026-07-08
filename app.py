@@ -855,11 +855,12 @@ def main():
                 scatter = pd.merge(cr, cost_by_model, on=["provider", "model"])
                 scatter = scatter.dropna(subset=["cost_usd"])
                 if not scatter.empty:
+                    show_labels = len(scatter) <= 10
                     fig2 = px.scatter(
                         scatter,
                         x="hit_rate",
                         y="cost_usd",
-                        text="model",
+                        text="model" if show_labels else None,
                         size="cost_usd",
                         color="provider",
                         labels={"hit_rate": "Cache Hit-Rate %", "cost_usd": "Est. Cost (USD)"},
