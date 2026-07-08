@@ -80,6 +80,14 @@ MATERIAL_CSS = f"""
     border-radius: 8px;
     border: 1px solid rgba(128, 128, 128, 0.15);
   }}
+  
+  /* Premium h1 gradient title */
+  h1 {{
+    background: linear-gradient(135deg, var(--primary-color), #00bfa5);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800 !important;
+  }}
 </style>
 """
 
