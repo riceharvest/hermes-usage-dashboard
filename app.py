@@ -591,6 +591,16 @@ def main():
             with col_d3:
                 st.markdown(f"📊 **Total Tokens**: `{row_data['Total tok']:,}` tokens")
                 st.markdown(f"💵 **Estimated Cost**: `{fmt_usd(row_data['Cost (OR)'])}`")
+        
+        # Download button
+        csv_data = session_show.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Session Logs (CSV)",
+            data=csv_data,
+            file_name="hermes_session_logs.csv",
+            mime="text/csv",
+            key="download_session_logs"
+        )
 
     with tab_catalog:
         st.subheader("📖 Model Price Catalog")
@@ -615,6 +625,16 @@ def main():
                 "Cache Write ($/1M)": st.column_config.NumberColumn("Cache Write ($/1M)", format="$%.2f"),
             }
             st.dataframe(catalog_df, width="stretch", hide_index=True, column_config=CATALOG_COLUMN_CONFIG)
+            
+            # Download button for catalog
+            csv_catalog = catalog_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Price Catalog (CSV)",
+                data=csv_catalog,
+                file_name="hermes_model_price_catalog.csv",
+                mime="text/csv",
+                key="download_price_catalog"
+            )
         else:
             st.info("No pricing models catalog loaded.")
 
