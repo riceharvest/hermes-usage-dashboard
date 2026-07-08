@@ -627,6 +627,41 @@ def main():
         else:
             st.warning("No local pricing cache file found. Using live fetched prices.")
 
+        # Request Cost Calculator
+        st.markdown("---")
+        st.subheader("🧮 Request Cost Estimator")
+        st.caption("Enter hypothetical tokens to estimate and compare costs across all cached models.")
+        
+        calc_col1, calc_col2, calc_col3 = st.columns(3)
+        with calc_col1:
+            calc_in = st.number_input("Hypothetical Input tokens", 0, 10000000, 50000, step=5000, key="calc_in_tokens")
+        with calc_col2:
+            calc_out = st.number_input("Hypothetical Output tokens", 0, 10000000, 2000, step=500, key="calc_out_tokens")
+        with calc_col3:
+            calc_cached = st.checkbox("Assume prompt cache hit (read)", value=True, key="calc_caching_used")
+            
+        calc_rows = []
+        for model_id, p in prices.items():
+            prompt_rate = p.cache_read if (calc_cached and p.cache_read < p.prompt) else p.prompt
+            est_cost = (calc_in * prompt_rate) + (calc_out * p.completion)
+            calc_rows.append({
+                "Model ID": model_id,
+                "Prompt Port": calc_in * prompt_rate,
+                "Completion Port": calc_out * p.completion,
+                "Total Est. Cost": est_cost,
+            })
+            
+        calc_df = pd.DataFrame(calc_rows)
+        if not calc_df.empty:
+            calc_df = calc_df.sort_values("Total Est. Cost").head(10)
+            CALC_COLUMN_CONFIG = {
+                "Model ID": st.column_config.TextColumn("Model ID"),
+                "Prompt Port": st.column_config.NumberColumn("Prompt Portion", format="$%.4f"),
+                "Completion Port": st.column_config.NumberColumn("Completion Portion", format="$%.4f"),
+                "Total Est. Cost": st.column_config.NumberColumn("Total Cost", format="$%.4f"),
+            }
+            st.dataframe(calc_df, width="stretch", hide_index=True, column_config=CALC_COLUMN_CONFIG)
+
     with tab_insights:
         sub_tab_cost, sub_tab_cache, sub_tab_activity = st.tabs([
             "💰 Cost & Savings", 
