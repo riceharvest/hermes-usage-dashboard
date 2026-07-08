@@ -60,6 +60,10 @@ def _fetch_models() -> dict[str, Price]:
             cache_write = float(p.get("input_cache_write", "0") or "0") or prompt
         except (TypeError, ValueError):
             continue
+        # OpenRouter marks some models as unsupported/failing with -1 pricing;
+        # treat these as unpriced so they don't pollute cost estimates.
+        if prompt < 0 or completion < 0 or cache_read < 0 or cache_write < 0:
+            continue
         out[mid] = Price(prompt, completion, cache_read, cache_write, "openrouter")
     return out
 

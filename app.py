@@ -307,19 +307,22 @@ def main():
             dmin = datetime.fromtimestamp(min(r.started_at for r in rows), tz=timezone.utc).date()
             dmax = datetime.fromtimestamp(max(r.started_at for r in rows), tz=timezone.utc).date()
             
-            # Reactively update the date range preset when the Time Bucket selection explicitly changes
+            # Only reset the date range to a default when the user has not explicitly set it
+            # AND the time bucket selection changed.  This preserves user-selected ranges.
             current_bucket = st.session_state.get("filter_time_bucket", "daily")
             prev_bucket = st.session_state.get("prev_time_bucket", "")
             if current_bucket != prev_bucket:
                 st.session_state["prev_time_bucket"] = current_bucket
-                if current_bucket == "daily":
-                    st.session_state["filter_date_range"] = (max(dmin, dmax - timedelta(days=6)), dmax)
-                elif current_bucket == "weekly":
-                    st.session_state["filter_date_range"] = (max(dmin, dmax - timedelta(days=29)), dmax)
-                elif current_bucket == "monthly":
-                    st.session_state["filter_date_range"] = (max(dmin, dmax - timedelta(days=89)), dmax)
-                else: # "all"
-                    st.session_state["filter_date_range"] = (dmin, dmax)
+                # Only set a preset if the user hasn't touched the range yet
+                if "filter_date_range_user_set" not in st.session_state:
+                    if current_bucket == "daily":
+                        st.session_state["filter_date_range"] = (max(dmin, dmax - timedelta(days=6)), dmax)
+                    elif current_bucket == "weekly":
+                        st.session_state["filter_date_range"] = (max(dmin, dmax - timedelta(days=29)), dmax)
+                    elif current_bucket == "monthly":
+                        st.session_state["filter_date_range"] = (max(dmin, dmax - timedelta(days=89)), dmax)
+                    else: # "all"
+                        st.session_state["filter_date_range"] = (dmin, dmax)
             
             if "filter_date_range" not in st.session_state:
                 st.session_state["filter_date_range"] = (dmin, dmax)
@@ -330,7 +333,13 @@ def main():
                     if v_lo < dmin or v_hi > dmax:
                         st.session_state["filter_date_range"] = (dmin, dmax)
             
-            rng = st.date_input("From / to", min_value=dmin, max_value=dmax, key="filter_date_range")
+            rng = st.date_input(
+                "From / to",
+                min_value=dmin,
+                max_value=dmax,
+                key="filter_date_range",
+                on_change=lambda: st.session_state.update({"filter_date_range_user_set": True}),
+            )
             auto_refresh = st.checkbox("Auto-refresh (60s)", value=False)
             
             st.divider()
@@ -523,6 +532,7 @@ def main():
             margin=dict(t=20, b=10, l=10, r=10),
             legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
             height=280,
+            title=dict(text="Token volume by segment", font=dict(size=12)),
         )
         st.plotly_chart(fig_tok, width="stretch")
         
@@ -554,6 +564,7 @@ def main():
             margin=dict(t=20, b=10, l=10, r=10),
             legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
             height=280,
+            title=dict(text=f"Cost by segment ({symbol})", font=dict(size=12)),
         )
         st.plotly_chart(fig_cost, width="stretch")
         
@@ -564,7 +575,7 @@ def main():
             by_prov,
             x="provider",
             y="cost_usd",
-            labels={"provider": "Provider", "cost_usd": "Cost (USD)"},
+            labels={"provider": "Provider", "cost_usd": f"Cost ({symbol})"},
             color="cost_usd",
             color_continuous_scale="Teal",
         )
@@ -656,9 +667,9 @@ def main():
         with col_n1:
             topn = st.slider("Top N models", 3, 15, 5)
         with col_n2:
-            metric_choice = st.radio("Metric to plot", ["Cost (USD)", "Token Volume"], horizontal=True, key="topn_metric")
+            metric_choice = st.radio("Metric to plot", [f"Cost ({symbol})", "Token Volume"], horizontal=True, key="topn_metric")
             
-        val_col = "cost_usd" if metric_choice == "Cost (USD)" else "total_tokens"
+        val_col = "cost_usd" if metric_choice == f"Cost ({symbol})" else "total_tokens"
         model_cost = fdf.groupby("model")[val_col].sum().sort_values(ascending=False)
         top_models = list(model_cost.head(topn).index)
         if top_models:
@@ -898,7 +909,7 @@ def main():
                     texttemplate=f"<b>%{{label}}</b><br>{symbol}%{{value:,.2f}}",
                     hovertemplate=f"<b>%{{label}}</b><br>Cost: {symbol}%{{value:,.4f}}<extra></extra>"
                 )
-                fig.update_layout(margin=dict(t=10, l=0, r=0, b=0))
+                fig.update_layout(margin=dict(t=10, l=0, r=0, b=0), coloraxis_colorbar=dict(title=f"Cost ({symbol})"))
                 st.plotly_chart(fig, width="stretch")
             else:
                 st.info("No cost data to display treemap.")
