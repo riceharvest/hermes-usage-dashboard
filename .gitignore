@@ -1,0 +1,15 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Secrets / local data — NEVER commit
+.env
+*.db
+state.db
+hermes_state.db
+
+# Editor / OS
+.DS_Store
+.idea/
