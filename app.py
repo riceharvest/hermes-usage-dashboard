@@ -12,7 +12,7 @@ Then open the printed localhost URL.
 """
 from __future__ import annotations
 
-import os, time
+import os, time, json
 from collections import defaultdict
 from datetime import datetime, timezone, date, timedelta
 
@@ -200,34 +200,50 @@ def fmt_tokens(n):
     return f"{n:.0f}"
 
 
+def suggest_model_match(target_name: str, options: list[str]) -> str:
+    t = target_name.lower().replace("-", " ").replace("/", " ").replace("_", " ")
+    best_match = ""
+    best_score = 0
+    for opt in options:
+        o = opt.lower().replace("-", " ").replace("/", " ").replace("_", " ")
+        # Token overlap
+        t_words = set(t.split())
+        o_words = set(o.split())
+        common = t_words.intersection(o_words)
+        score = len(common)
+        
+        # Check specific prefix/suffix matches
+        t_last = target_name.split("/")[-1].lower()
+        o_last = opt.split("/")[-1].lower()
+        if o_last.startswith(t_last) or t_last.startswith(o_last):
+            score += 3
+        if score > best_score:
+            best_score = score
+            best_match = opt
+    return best_match if best_score > 0 else ""
+
+CURRENCIES = {
+    "USD ($)": ("$", 1.0),
+    "EUR (€)": ("€", 0.92),
+    "GBP (£)": ("£", 0.78),
+    "JPY (¥)": ("¥", 160.0),
+    "CAD (C$)": ("C$", 1.36),
+    "AUD (A$)": ("A$", 1.50),
+}
+
 def fmt_usd(n):
     if n is None:
         return "—"
     n = float(n)
-    if n == 0.0:
-        return "$0.00"
-    if n < 0.01:
-        return f"${n:.4f}"
-    return f"${n:,.2f}"
+    symbol = st.session_state.get("currency_symbol", "$")
+    rate = st.session_state.get("currency_rate", 1.0)
+    n_conv = n * rate
+    if n_conv == 0.0:
+        return f"{symbol}0.00"
+    if n_conv < 0.01:
+        return f"{symbol}{n_conv:.4f}"
+    return f"{symbol}{n_conv:,.2f}"
 
-
-SHARED_COLUMN_CONFIG = {
-    "Provider": st.column_config.TextColumn("Provider"),
-    "Model": st.column_config.TextColumn("Model"),
-    "Sessions": st.column_config.NumberColumn("Sessions", format="%d"),
-    "Non-cached in": st.column_config.NumberColumn("Non-cached in", format="%d"),
-    "Cached in": st.column_config.NumberColumn("Cached in", format="%d"),
-    "Cache write": st.column_config.NumberColumn("Cache write", format="%d"),
-    "Output": st.column_config.NumberColumn("Output", format="%d"),
-    "Total tok": st.column_config.NumberColumn("Total tok", format="%d"),
-    "Cost (OR)": st.column_config.NumberColumn("Cost (OR)", format="$%.4f"),
-    "% cost": st.column_config.NumberColumn("% cost", format="%.1f%%"),
-    "Priced": st.column_config.NumberColumn("Priced", format="%d"),
-    "Daily": st.column_config.TextColumn("Daily"),
-    "Weekly": st.column_config.TextColumn("Weekly"),
-    "Monthly": st.column_config.TextColumn("Monthly"),
-    "Started At": st.column_config.DatetimeColumn("Started At", format="YYYY-MM-DD HH:mm:ss"),
-}
 
 
 @st.fragment(run_every=60)
@@ -300,7 +316,7 @@ def main():
             else:  # "all"
                 target_val = (dmin, dmax)
 
-            rng = st.date_input("From / to", value=target_val, min_value=dmin, max_value=dmax)
+            rng = st.date_input("From / to", value=target_val, min_value=dmin, max_value=dmax, key="filter_date_range")
             auto_refresh = st.checkbox("Auto-refresh (60s)", value=False)
             
             st.divider()
@@ -311,6 +327,35 @@ def main():
                 db_sz_mb = os.path.getsize(db_resolved_path) / (1024 * 1024)
             st.metric("Total Sessions", f"{len(rows):,}")
             st.metric("Database File Size", f"{db_sz_mb:.1f} MB")
+            
+            # Currency Settings
+            st.divider()
+            with st.expander("💱 Currency Converter"):
+                curr_choice = st.selectbox(
+                    "Display Currency",
+                    options=list(CURRENCIES.keys()),
+                    index=0,
+                    key="curr_selection"
+                )
+                def_sym, def_rate = CURRENCIES[curr_choice]
+                custom_rate = st.number_input(
+                    f"Exchange rate (1 USD = ? {def_sym})",
+                    min_value=0.0001,
+                    max_value=10000.0,
+                    value=def_rate,
+                    format="%.4f"
+                )
+                st.session_state["currency_symbol"] = def_sym
+                st.session_state["currency_rate"] = custom_rate
+            
+            # Reset Filters Button
+            st.divider()
+            if st.button("🧹 Reset All Filters", key="btn_reset_filters", width=160):
+                st.session_state.pop("filter_providers", None)
+                st.session_state.pop("filter_models", None)
+                st.session_state.pop("filter_date_range", None)
+                st.session_state["toast_msg"] = "All filters reset to defaults!"
+                st.rerun()
 
         autorefresh_handler(auto_refresh)
 
@@ -345,6 +390,7 @@ def main():
             options=providers,
             default=[],
             placeholder="All Providers",
+            key="filter_providers",
             help="Select one or more providers to filter. Leave empty to show all."
         )
         fdf = df[df["provider"].isin(sel_providers)] if sel_providers else df
@@ -357,6 +403,7 @@ def main():
             options=models,
             default=[],
             placeholder="All Models",
+            key="filter_models",
             help="Select one or more models to filter. Leave empty to show all."
         )
         if sel_models:
@@ -365,6 +412,45 @@ def main():
     if fdf.empty:
         st.info("No data matches the selected filters. Please adjust your Provider / Model / Date Range filters.")
         return
+
+    # Apply currency rate scaling to fdf
+    symbol = st.session_state.get("currency_symbol", "$")
+    rate = st.session_state.get("currency_rate", 1.0)
+    if rate != 1.0:
+        cost_cols = [c for c in fdf.columns if "cost" in c or "savings" in c]
+        for c in cost_cols:
+            fdf[c] = fdf[c] * rate
+            
+    # Define SHARED_COLUMN_CONFIG dynamically using current symbol
+    SHARED_COLUMN_CONFIG = {
+        "Provider": st.column_config.TextColumn("Provider"),
+        "Model": st.column_config.TextColumn("Model"),
+        "Sessions": st.column_config.NumberColumn("Sessions", format="%d"),
+        "Non-cached in": st.column_config.NumberColumn("Non-cached in", format="%d"),
+        "Cached in": st.column_config.NumberColumn("Cached in", format="%d"),
+        "Cache write": st.column_config.NumberColumn("Cache write", format="%d"),
+        "Output": st.column_config.NumberColumn("Output", format="%d"),
+        "Total tok": st.column_config.NumberColumn("Total tok", format="%d"),
+        "Cost (OR)": st.column_config.NumberColumn("Cost (OR)", format=f"{symbol}%.4f"),
+        "% cost": st.column_config.NumberColumn("% cost", format="%.1f%%"),
+        "Priced": st.column_config.NumberColumn("Priced", format="%d"),
+        "Daily": st.column_config.TextColumn("Daily"),
+        "Weekly": st.column_config.TextColumn("Weekly"),
+        "Monthly": st.column_config.TextColumn("Monthly"),
+        "Started At": st.column_config.DatetimeColumn("Started At", format="YYYY-MM-DD HH:mm:ss"),
+    }
+
+    # Active filters summary row
+    filter_badges = []
+    if sel_providers:
+        filter_badges.append(f"☁️ Providers: `{', '.join(sel_providers)}`")
+    if sel_models:
+        filter_badges.append(f"🤖 Models: `{', '.join(sel_models)}`")
+    if isinstance(rng, (tuple, list)) and len(rng) == 2:
+        filter_badges.append(f"📅 Range: `{rng[0]}` to `{rng[1]}`")
+    
+    if filter_badges:
+        st.caption("Active Filters: " + " • ".join(filter_badges))
 
     # ── Totals (KPI row) ─────────────────────────────────────────────────
     tot_noncached = fdf["non_cached_input"].sum()
@@ -447,7 +533,7 @@ def main():
         )
         fig_cost.update_traces(
             textinfo='percent+label',
-            hovertemplate="<b>%{label}</b><br>Cost: $%{value:,.4f}<br>Percentage: %{percent:.1%}<extra></extra>"
+            hovertemplate=f"<b>%{{label}}</b><br>Cost: {symbol}%{{value:,.4f}}<br>Percentage: %{{percent:.1%}}<extra></extra>"
         )
         fig_cost.update_layout(
             margin=dict(t=20, b=10, l=10, r=10),
@@ -468,7 +554,7 @@ def main():
             color_continuous_scale="Teal",
         )
         fig_prov.update_traces(
-            hovertemplate="<b>%{x}</b><br>Cost: $%{y:,.4f}<extra></extra>"
+            hovertemplate=f"<b>%{{x}}</b><br>Cost: {symbol}%{{y:,.4f}}<extra></extra>"
         )
         fig_prov.update_layout(
             margin=dict(t=20, b=10, l=10, r=10),
@@ -572,8 +658,22 @@ def main():
         session_show.columns = ["Started At", "Provider", "Model", "Non-cached in", "Cached in", "Output", "Total tok", "Cost (OR)"]
         session_show = session_show.sort_values("Started At", ascending=False)
         
+        # Color highlight expensive runs (cost > $0.10) using pandas styling
+        def highlight_expensive(val):
+            try:
+                val_f = float(val)
+                if val_f >= 0.10:
+                    return 'background-color: rgba(255, 152, 0, 0.25); color: #ff9800; font-weight: bold;'
+                elif val_f >= 0.02:
+                    return 'background-color: rgba(255, 193, 7, 0.15); font-weight: 500;'
+            except Exception:
+                pass
+            return ''
+            
+        styled_show = session_show.style.map(highlight_expensive, subset=["Cost (OR)"])
+        
         selected = st.dataframe(
-            session_show,
+            styled_show,
             width="stretch",
             hide_index=True,
             column_config=SHARED_COLUMN_CONFIG,
@@ -599,6 +699,30 @@ def main():
             with col_d3:
                 st.markdown(f"📊 **Total Tokens**: `{row_data['Total tok']:,}` tokens")
                 st.markdown(f"💵 **Estimated Cost**: `{fmt_usd(row_data['Cost (OR)'])}`")
+            
+            # Quick Map Option
+            is_priced = pricing.price_for(row_data['Model'], prices, overrides) is not None
+            if not is_priced:
+                st.markdown("---")
+                st.info(f"⚠️ **Model Price Mapping Missing**: `{row_data['Model']}` has no price mapping and defaults to $0.00. Map it now:")
+                col_qm1, col_qm2 = st.columns([3, 1])
+                with col_qm1:
+                    or_ids = sorted(prices.keys())
+                    qm_choice = st.selectbox(
+                        "Price as OpenRouter model ID",
+                        [""] + or_ids,
+                        key=f"quick_map_{row_data['Model']}",
+                        format_func=lambda x: "— select OpenRouter model —" if x == "" else x
+                    )
+                with col_qm2:
+                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                    if st.button("Save Quick Map", key=f"btn_qm_{row_data['Model']}"):
+                        if qm_choice:
+                            new_overrides = dict(overrides)
+                            new_overrides[row_data['Model']] = qm_choice
+                            pricing.save_overrides(new_overrides)
+                            st.session_state["toast_msg"] = f"Mapped '{row_data['Model']}' to '{qm_choice}'"
+                            st.rerun()
         
         # Download button
         csv_data = session_show.to_csv(index=False).encode('utf-8')
@@ -617,20 +741,28 @@ def main():
         for model_id, p in prices.items():
             catalog_data.append({
                 "Model ID": model_id,
-                "Prompt ($/1M)": p.prompt * 1e6,
-                "Completion ($/1M)": p.completion * 1e6,
-                "Cache Read ($/1M)": p.cache_read * 1e6,
-                "Cache Write ($/1M)": p.cache_write * 1e6,
+                f"Prompt ({symbol}/1M)": p.prompt * 1e6 * rate,
+                f"Completion ({symbol}/1M)": p.completion * 1e6 * rate,
+                f"Cache Read ({symbol}/1M)": p.cache_read * 1e6 * rate,
+                f"Cache Write ({symbol}/1M)": p.cache_write * 1e6 * rate,
             })
         catalog_df = pd.DataFrame(catalog_data)
+        catalog_search = st.text_input("🔍 Search Models by name", value="", placeholder="Search model IDs...", key="catalog_search_input")
+        hide_free = st.checkbox("Hide free models", value=False, key="catalog_hide_free")
         if not catalog_df.empty:
+            if catalog_search:
+                catalog_df = catalog_df[catalog_df["Model ID"].str.contains(catalog_search, case=False, na=False)]
+            if hide_free:
+                catalog_df = catalog_df[
+                    (catalog_df[f"Prompt ({symbol}/1M)"] > 0) | (catalog_df[f"Completion ({symbol}/1M)"] > 0)
+                ]
             catalog_df = catalog_df.sort_values("Model ID")
             CATALOG_COLUMN_CONFIG = {
                 "Model ID": st.column_config.TextColumn("Model ID"),
-                "Prompt ($/1M)": st.column_config.NumberColumn("Prompt ($/1M)", format="$%.2f"),
-                "Completion ($/1M)": st.column_config.NumberColumn("Completion ($/1M)", format="$%.2f"),
-                "Cache Read ($/1M)": st.column_config.NumberColumn("Cache Read ($/1M)", format="$%.2f"),
-                "Cache Write ($/1M)": st.column_config.NumberColumn("Cache Write ($/1M)", format="$%.2f"),
+                f"Prompt ({symbol}/1M)": st.column_config.NumberColumn(f"Prompt ({symbol}/1M)", format=f"{symbol}%.2f"),
+                f"Completion ({symbol}/1M)": st.column_config.NumberColumn(f"Completion ({symbol}/1M)", format=f"{symbol}%.2f"),
+                f"Cache Read ({symbol}/1M)": st.column_config.NumberColumn(f"Cache Read ({symbol}/1M)", format=f"{symbol}%.2f"),
+                f"Cache Write ({symbol}/1M)": st.column_config.NumberColumn(f"Cache Write ({symbol}/1M)", format=f"{symbol}%.2f"),
             }
             st.dataframe(catalog_df, width="stretch", hide_index=True, column_config=CATALOG_COLUMN_CONFIG)
             
@@ -683,9 +815,9 @@ def main():
             est_cost = (calc_in * prompt_rate) + (calc_out * p.completion)
             calc_rows.append({
                 "Model ID": model_id,
-                "Prompt Port": calc_in * prompt_rate,
-                "Completion Port": calc_out * p.completion,
-                "Total Est. Cost": est_cost,
+                "Prompt Port": calc_in * prompt_rate * rate,
+                "Completion Port": calc_out * p.completion * rate,
+                "Total Est. Cost": est_cost * rate,
             })
             
         model_options = sorted(prices.keys())
@@ -706,9 +838,9 @@ def main():
                 calc_df = calc_df.sort_values("Total Est. Cost").head(10)
             CALC_COLUMN_CONFIG = {
                 "Model ID": st.column_config.TextColumn("Model ID"),
-                "Prompt Port": st.column_config.NumberColumn("Prompt Portion", format="$%.4f"),
-                "Completion Port": st.column_config.NumberColumn("Completion Portion", format="$%.4f"),
-                "Total Est. Cost": st.column_config.NumberColumn("Total Cost", format="$%.4f"),
+                "Prompt Port": st.column_config.NumberColumn("Prompt Portion", format=f"{symbol}%.4f"),
+                "Completion Port": st.column_config.NumberColumn("Completion Portion", format=f"{symbol}%.4f"),
+                "Total Est. Cost": st.column_config.NumberColumn("Total Cost", format=f"{symbol}%.4f"),
             }
             st.dataframe(calc_df, width="stretch", hide_index=True, column_config=CALC_COLUMN_CONFIG)
 
@@ -788,7 +920,7 @@ def main():
                     color_discrete_map={"Prompt (Input)": "#009688", "Completion (Output)": "#ff9800"}
                 )
                 fig_ratio.update_traces(
-                    hovertemplate="<b>%{x}</b><br>Cost: $%{y:,.4f}<extra></extra>"
+                    hovertemplate=f"<b>%{{x}}</b><br>Cost: {symbol}%{{y:,.4f}}<extra></extra>"
                 )
                 fig_ratio.update_layout(
                     margin=dict(t=10, l=0, r=0, b=0),
@@ -803,7 +935,8 @@ def main():
             st.caption("Histogram of per-session estimated cost — reveals outlier burns.")
             sess_cost = fdf[fdf["cost_usd"].notna() & (fdf["cost_usd"] > 0)]["cost_usd"]
             if len(sess_cost) > 1:
-                fig3 = px.histogram(sess_cost, nbins=40, color_discrete_sequence=["#009688"])
+                log_y = st.checkbox("Logarithmic scale (Y-axis)", value=False, key="hist_log_y")
+                fig3 = px.histogram(sess_cost, nbins=40, color_discrete_sequence=["#009688"], log_y=log_y)
                 fig3.update_layout(
                     margin=dict(t=10, l=0, r=0, b=0),
                     xaxis_title="est. cost per session (USD)",
@@ -979,18 +1112,29 @@ def main():
                 "Model to map",
                 ordered,
                 format_func=lambda m: f"{m}  (unpriced)" if m in unpriced_models else m,
-                key="map_target_select"
+                key="map_target_select",
+                on_change=lambda: st.session_state.pop("map_choice_select", None)
             )
-        with col_m2:
+            
+            # Auto suggest button
             or_ids = sorted(prices.keys())
+            if st.button("🧙 Auto-Suggest Match", key="btn_auto_suggest"):
+                best = suggest_model_match(target, or_ids)
+                if best:
+                    st.session_state["map_choice_select"] = best
+                    st.session_state["toast_msg"] = f"Suggested matching model: '{best}'"
+                    st.rerun()
+                else:
+                    st.warning("Could not find a close matching model name in the catalog.")
+                    
+        with col_m2:
             current = overrides.get(target, "")
-            idx = 0
-            if current in or_ids:
-                idx = or_ids.index(current) + 1
+            if "map_choice_select" not in st.session_state:
+                st.session_state["map_choice_select"] = current if current in or_ids else ""
+                
             choice = st.selectbox(
                 f"Price '{target}' as OpenRouter model",
                 [""] + or_ids,
-                index=idx,
                 format_func=lambda x: "— default/unmapped —" if x == "" else x,
                 key="map_choice_select"
             )
@@ -1012,6 +1156,18 @@ def main():
             st.session_state["toast_msg"] = f"Cleared mapping for '{target}'"
             pricing.save_overrides(new_overrides)
             st.rerun()
+            
+        # Download overrides mapping
+        if overrides:
+            st.markdown("---")
+            overrides_json = json.dumps({"overrides": overrides}, indent=2).encode('utf-8')
+            st.download_button(
+                label="📥 Export Mappings as JSON",
+                data=overrides_json,
+                file_name="usage_dashboard_overrides.json",
+                mime="application/json",
+                key="btn_download_overrides"
+            )
 
     st.caption(
         f"Data: {len(df):,} sessions · "
