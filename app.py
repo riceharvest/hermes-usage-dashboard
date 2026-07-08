@@ -671,9 +671,9 @@ def main():
         
         calc_col1, calc_col2, calc_col3 = st.columns(3)
         with calc_col1:
-            calc_in = st.number_input("Hypothetical Input tokens", 0, 10000000, 50000, step=5000, key="calc_in_tokens")
+            calc_in = st.number_input("Hypothetical Input tokens", min_value=0, max_value=None, value=50000, step=5000, key="calc_in_tokens")
         with calc_col2:
-            calc_out = st.number_input("Hypothetical Output tokens", 0, 10000000, 2000, step=500, key="calc_out_tokens")
+            calc_out = st.number_input("Hypothetical Output tokens", min_value=0, max_value=None, value=2000, step=500, key="calc_out_tokens")
         with calc_col3:
             calc_cached = st.checkbox("Assume prompt cache hit (read)", value=True, key="calc_caching_used")
             
