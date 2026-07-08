@@ -20,9 +20,13 @@ cost-control views.
 
 ## Install & run
 
+> **Use Python 3.11.** The venv must match the numpy/pandas wheel ABI — building
+> against 3.14 (linuxbrew default) loads 3.11-compiled C-extensions and crashes
+> on import. `python3.11` is the safe target here.
+
 ```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install streamlit pandas plotly
+python3.11 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
 python3 app.py
 ```
 

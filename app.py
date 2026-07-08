@@ -300,13 +300,13 @@ def main():
                 "tokens": [tot_noncached, tot_cached, fdf["cache_write"].sum(), tot_out],
             }
         )
-        st.bar_chart(split.set_index("segment")["tokens"], use_container_width=True)
+        st.bar_chart(split.set_index("segment")["tokens"], width="stretch")
         st.caption("Token volume by segment (cached vs non-cached input vs output)")
     with col_b:
         # Cost by provider
         by_prov = agg(fdf, ["provider"]).sort_values("cost_usd", ascending=False)
         chart_df = by_prov[["provider", "cost_usd"]].fillna(0).set_index("provider")
-        st.bar_chart(chart_df["cost_usd"], use_container_width=True)
+        st.bar_chart(chart_df["cost_usd"], width="stretch")
         st.caption("Estimated cost (USD) by provider — cheapest OpenRouter rates")
 
     st.divider()
@@ -329,7 +329,7 @@ def main():
         for col in ["Non-cached in", "Cached in", "Cache write", "Output", "Total tok"]:
             show[col] = show[col].map(fmt_tokens)
         show["Cost (OR)"] = show["Cost (OR)"].map(fmt_usd)
-        st.dataframe(show, use_container_width=True, hide_index=True)
+        st.dataframe(show, width="stretch", hide_index=True)
 
     with tab_model:
         g = agg(fdf, ["provider", "model"]).sort_values("cost_usd", ascending=False)
@@ -337,14 +337,14 @@ def main():
         g["cost_pct"] = (g["cost_usd"] / total_cost * 100).round(1) if total_cost else 0.0
         show = g[
             ["provider", "model", "sessions", "non_cached_input", "cached_input",
-             "cache_write", "output", "total_tokens", "cost_usd", "cost_pct", "priced"]
+             "cache_write", "output", "total_tokens", "cost_usd", "cost_pct", "priced_sessions"]
         ].copy()
         show.columns = ["Provider", "Model", "Sessions", "Non-cached in", "Cached in",
                         "Cache write", "Output", "Total tok", "Cost (OR)", "% cost", "Priced"]
         for col in ["Non-cached in", "Cached in", "Cache write", "Output", "Total tok"]:
             show[col] = show[col].map(fmt_tokens)
         show["Cost (OR)"] = show["Cost (OR)"].map(fmt_usd)
-        st.dataframe(show, use_container_width=True, hide_index=True)
+        st.dataframe(show, width="stretch", hide_index=True)
 
     with tab_period:
         pk = {"daily": "date", "weekly": "week", "monthly": "month", "all": None}[period]
@@ -361,19 +361,19 @@ def main():
             for col in ["Non-cached in", "Cached in", "Output", "Total tok"]:
                 show[col] = show[col].map(fmt_tokens)
             show["Cost (OR)"] = show["Cost (OR)"].map(fmt_usd)
-            st.dataframe(show, use_container_width=True, hide_index=True)
+            st.dataframe(show, width="stretch", hide_index=True)
 
             # Trend line: total tokens + cost over period
             st.subheader(f"{period.capitalize()} trend")
             trend = agg(fdf, [pk]).sort_values(pk)
             tchart = trend[[pk, "total_tokens", "cost_usd"]].set_index(pk)
-            st.line_chart(tchart, use_container_width=True)
+            st.line_chart(tchart, width="stretch")
         else:
             show = g[["provider", "sessions", "total_tokens", "cost_usd"]].copy()
             show.columns = ["Provider", "Sessions", "Total tok", "Cost (OR)"]
             show["Total tok"] = show["Total tok"].map(fmt_tokens)
             show["Cost (OR)"] = show["Cost (OR)"].map(fmt_usd)
-            st.dataframe(show, use_container_width=True, hide_index=True)
+            st.dataframe(show, width="stretch", hide_index=True)
 
     # ── Top-N model cost trend (sparkline over daily buckets) ───────────
     with tab_topn:
@@ -386,7 +386,7 @@ def main():
             sub = fdf[fdf["model"].isin(top_models)]
             piv = sub.pivot_table(index=pk, columns="model", values="cost_usd", aggfunc="sum").fillna(0)
             piv = piv.sort_index()
-            st.line_chart(piv, use_container_width=True)
+            st.line_chart(piv, width="stretch")
             st.caption("Estimated cost (USD) per top model over time — narrow with the date-range filter.")
         else:
             st.info("No priced models in the current filter.")
@@ -408,7 +408,7 @@ def main():
         cr = cr[cr["cached"] + cr["noncached"] > 0].sort_values("hit_rate", ascending=False)
         cr_disp = cr.copy()
         cr_disp["Model"] = cr_disp["provider"] + " / " + cr_disp["model"]
-        st.bar_chart(cr_disp.set_index("Model")["hit_rate"], use_container_width=True)
+        st.bar_chart(cr_disp.set_index("Model")["hit_rate"], width="stretch")
 
         st.subheader("🧱 Token composition over time")
         st.caption("100% stacked area: non-cached input / cached input / output / reasoning.")
@@ -424,7 +424,7 @@ def main():
             .sort_index()
         )
         comp_pct = comp.div(comp.sum(axis=1).replace(0, 1), axis=0) * 100
-        st.area_chart(comp_pct, use_container_width=True)
+        st.area_chart(comp_pct, width="stretch")
 
         st.subheader("🌳 Spend treemap (provider → model)")
         st.caption("Box size = estimated cost. Click a provider to drill into models.")
@@ -438,7 +438,7 @@ def main():
             color_continuous_scale="Tealgrn",
         )
         fig.update_layout(margin=dict(t=10, l=0, r=0, b=0))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         st.subheader("💸 Cost vs cache hit-rate (per model)")
         st.caption("Each point = a model. Top-right = cheap AND well-cached.")
@@ -459,7 +459,7 @@ def main():
             )
             fig2.update_traces(textposition="top center", marker=dict(opacity=0.7))
             fig2.update_layout(margin=dict(t=10, l=0, r=0, b=0))
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width="stretch")
 
         st.subheader("🧠 Reasoning-token share by model")
         st.caption("reasoning / total_tokens %. Flags reasoning-heavy (expensive) models.")
@@ -472,7 +472,7 @@ def main():
         rs = rs[rs["total"] > 0].sort_values("reason_pct", ascending=False)
         rs_disp = rs.copy()
         rs_disp["Model"] = rs_disp["provider"] + " / " + rs_disp["model"]
-        st.bar_chart(rs_disp.set_index("Model")["reason_pct"], use_container_width=True)
+        st.bar_chart(rs_disp.set_index("Model")["reason_pct"], width="stretch")
 
         st.subheader("📊 Session cost distribution")
         st.caption("Histogram of per-session estimated cost — reveals outlier burns.")
@@ -484,7 +484,7 @@ def main():
                 xaxis_title="est. cost per session (USD)",
                 yaxis_title="sessions",
             )
-            st.plotly_chart(fig3, use_container_width=True)
+            st.plotly_chart(fig3, width="stretch")
         else:
             st.info("Not enough priced sessions in the current filter for a histogram.")
 
@@ -503,7 +503,7 @@ def main():
         sav_by_provider = (
             fdf2.groupby("provider")["savings"].sum().sort_values(ascending=False)
         )
-        st.bar_chart(sav_by_provider, use_container_width=True)
+        st.bar_chart(sav_by_provider, width="stretch")
         st.caption("Cached-input savings by provider (USD)")
 
         st.subheader("📈 Model adoption over time")
@@ -514,18 +514,18 @@ def main():
         # keep top 12 models by total sessions, group rest as 'other'
         top_models = fdf["model"].value_counts().head(12).index.tolist()
         adopt_top = adopt[top_models] if all(m in adopt.columns for m in top_models) else adopt
-        st.area_chart(adopt_top, use_container_width=True)
+        st.area_chart(adopt_top, width="stretch")
 
         st.subheader("🔥 Activity volume (sessions & tokens per day)")
         st.caption("Dual view: how hard you're running vs how expensive.")
         act = fdf.groupby(pk).agg(sessions=("model", "size"), tokens=("total_tokens", "sum")).sort_index()
-        st.line_chart(act, use_container_width=True)
+        st.line_chart(act, width="stretch")
         st.caption("Blue = sessions/day, orange = total tokens/day")
 
         st.subheader("⚡ Avg cost per session over time")
         st.caption("Efficiency: estimated cost per session. Rising = each run getting pricier.")
         cps = fdf[fdf["cost_usd"].notna()].groupby(pk)["cost_usd"].mean().sort_index()
-        st.line_chart(cps, use_container_width=True)
+        st.line_chart(cps, width="stretch")
 
         st.subheader("🔄 Cache write vs read balance (per model)")
         st.caption("Models where you write cache you never read = wasted writes.")
@@ -538,7 +538,7 @@ def main():
         wr_disp = wr.copy()
         wr_disp["Model"] = wr_disp["provider"] + " / " + wr_disp["model"]
         wr_disp = wr_disp.set_index("Model")[["write", "read"]]
-        st.bar_chart(wr_disp, use_container_width=True)
+        st.bar_chart(wr_disp, width="stretch")
         st.caption("write = cache_write tokens, read = cached_input tokens")
 
     st.caption(
