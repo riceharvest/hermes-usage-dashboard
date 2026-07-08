@@ -12,7 +12,7 @@ Then open the printed localhost URL.
 """
 from __future__ import annotations
 
-import os
+import os, time
 from collections import defaultdict
 from datetime import datetime, timezone, date, timedelta
 
@@ -608,6 +608,24 @@ def main():
             st.dataframe(catalog_df, width="stretch", hide_index=True, column_config=CATALOG_COLUMN_CONFIG)
         else:
             st.info("No pricing models catalog loaded.")
+
+        # Cache Diagnostics
+        st.markdown("---")
+        st.subheader("⚙️ Pricing Cache Diagnostics")
+        cache_exists = os.path.exists(pricing.CACHE_PATH)
+        if cache_exists:
+            cache_sz_kb = os.path.getsize(pricing.CACHE_PATH) / 1024
+            mtime = os.path.getmtime(pricing.CACHE_PATH)
+            age_hours = (time.time() - mtime) / 3600
+            
+            c_d1, c_d2, c_d3 = st.columns(3)
+            c_d1.metric("Cached Models Count", f"{len(prices):,}")
+            c_d2.metric("Cache File Size", f"{cache_sz_kb:.1f} KB")
+            c_d3.metric("Cache File Age", f"{age_hours:.1f} hours ago")
+            
+            st.caption(f"Cache location: `{pricing.CACHE_PATH}`")
+        else:
+            st.warning("No local pricing cache file found. Using live fetched prices.")
 
     with tab_insights:
         sub_tab_cost, sub_tab_cache, sub_tab_activity = st.tabs([
