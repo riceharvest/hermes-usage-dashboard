@@ -127,8 +127,8 @@ def build_dataframe(rows, prices, overrides=None):
 
         recs.append(
             {
-                "provider": r.provider,
-                "model": r.model,
+                "provider": r.provider or "unknown",
+                "model": r.model or "unknown",
                 "started_at": datetime.fromtimestamp(r.started_at, tz=timezone.utc),
                 "non_cached_input": non_cached,
                 "cached_input": r.cache_read_tokens,
@@ -457,6 +457,7 @@ def main():
             margin=dict(t=20, b=10, l=10, r=10),
             coloraxis_showscale=False,
             height=280,
+            xaxis={'categoryorder': 'total descending'},
         )
         st.plotly_chart(fig_prov, width="stretch")
 
