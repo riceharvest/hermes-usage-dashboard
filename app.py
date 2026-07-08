@@ -307,15 +307,9 @@ def main():
             dmin = datetime.fromtimestamp(min(r.started_at for r in rows), tz=timezone.utc).date()
             dmax = datetime.fromtimestamp(max(r.started_at for r in rows), tz=timezone.utc).date()
             # Determine date range default value based on period selection
-            if period == "daily":
-                target_val = (dmax, dmax)
-            elif period == "weekly":
-                target_val = (max(dmin, dmax - timedelta(days=6)), dmax)
-            elif period == "monthly":
-                target_val = (max(dmin, dmax - timedelta(days=29)), dmax)
-            else:  # "all"
-                target_val = (dmin, dmax)
-
+            # The date range defaults to the full range of state.db
+            # and is independent of the Time Bucket selection to prevent implicit/unexpected filtering.
+            target_val = (dmin, dmax)
             rng = st.date_input("From / to", value=target_val, min_value=dmin, max_value=dmax, key="filter_date_range")
             auto_refresh = st.checkbox("Auto-refresh (60s)", value=False)
             
