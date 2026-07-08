@@ -707,6 +707,48 @@ def main():
                 st.bar_chart(sav_by_provider, width="stretch")
                 st.caption("Cached-input savings by provider (USD)")
 
+            st.subheader("🥞 Input vs Output Cost split (per provider)")
+            st.caption("Stacked bar of prompt input costs vs completion output costs by provider.")
+            ratio_agg = fdf.groupby("provider").agg(
+                cost_non_cached_input=("cost_non_cached_input", "sum"),
+                cost_cached_input=("cost_cached_input", "sum"),
+                cost_cache_write=("cost_cache_write", "sum"),
+                cost_output=("cost_output", "sum"),
+            ).reset_index()
+            
+            ratio_agg["Prompt (Input)"] = ratio_agg["cost_non_cached_input"] + ratio_agg["cost_cached_input"] + ratio_agg["cost_cache_write"]
+            ratio_agg["Completion (Output)"] = ratio_agg["cost_output"]
+            
+            ratio_long = ratio_agg.melt(
+                id_vars=["provider"],
+                value_vars=["Prompt (Input)", "Completion (Output)"],
+                var_name="Cost Type",
+                value_name="Cost (USD)"
+            )
+            ratio_long = ratio_long[ratio_long["Cost (USD)"] > 0]
+            
+            if not ratio_long.empty:
+                fig_ratio = px.bar(
+                    ratio_long,
+                    x="provider",
+                    y="Cost (USD)",
+                    color="Cost Type",
+                    barmode="stack",
+                    labels={"provider": "Provider", "Cost (USD)": "Cost ($)"},
+                    color_discrete_map={"Prompt (Input)": "#009688", "Completion (Output)": "#ff9800"}
+                )
+                fig_ratio.update_traces(
+                    hovertemplate="<b>%{x}</b><br>Cost: $%{y:,.4f}<extra></extra>"
+                )
+                fig_ratio.update_layout(
+                    margin=dict(t=10, l=0, r=0, b=0),
+                    height=280,
+                    xaxis={'categoryorder': 'total descending'}
+                )
+                st.plotly_chart(fig_ratio, width="stretch")
+            else:
+                st.info("No priced cost to show Prompt/Completion ratio.")
+
             st.subheader("📊 Session cost distribution")
             st.caption("Histogram of per-session estimated cost — reveals outlier burns.")
             sess_cost = fdf[fdf["cost_usd"].notna() & (fdf["cost_usd"] > 0)]["cost_usd"]
