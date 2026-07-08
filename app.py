@@ -648,6 +648,10 @@ def main():
                     color="cost",
                     color_continuous_scale="Tealgrn",
                 )
+                fig.update_traces(
+                    texttemplate="<b>%{label}</b><br>$%{value:,.2f}",
+                    hovertemplate="<b>%{label}</b><br>Cost: $%{value:,.4f}<extra></extra>"
+                )
                 fig.update_layout(margin=dict(t=10, l=0, r=0, b=0))
                 st.plotly_chart(fig, width="stretch")
             else:
