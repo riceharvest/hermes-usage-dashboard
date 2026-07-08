@@ -277,7 +277,7 @@ def main():
             st.cache_data.clear()
             st.rerun()
 
-        period = st.radio("Time Bucket", ["all", "daily", "weekly", "monthly"], index=1)
+        period = st.radio("Time Bucket", ["all", "daily", "weekly", "monthly"], index=1, key="filter_time_bucket")
         st.divider()
         st.caption("Pricing cached 24h at ~/.hermes/cache/openrouter_pricing.json")
 
@@ -306,11 +306,16 @@ def main():
             st.subheader("📅 Date range")
             dmin = datetime.fromtimestamp(min(r.started_at for r in rows), tz=timezone.utc).date()
             dmax = datetime.fromtimestamp(max(r.started_at for r in rows), tz=timezone.utc).date()
-            # Determine date range default value based on period selection
-            # The date range defaults to the full range of state.db
-            # and is independent of the Time Bucket selection to prevent implicit/unexpected filtering.
-            target_val = (dmin, dmax)
-            rng = st.date_input("From / to", value=target_val, min_value=dmin, max_value=dmax, key="filter_date_range")
+            if "filter_date_range" not in st.session_state:
+                st.session_state["filter_date_range"] = (dmin, dmax)
+            else:
+                val = st.session_state["filter_date_range"]
+                if isinstance(val, (tuple, list)) and len(val) == 2:
+                    v_lo, v_hi = val
+                    if v_lo < dmin or v_hi > dmax:
+                        st.session_state["filter_date_range"] = (dmin, dmax)
+            
+            rng = st.date_input("From / to", min_value=dmin, max_value=dmax, key="filter_date_range")
             auto_refresh = st.checkbox("Auto-refresh (60s)", value=False)
             
             st.divider()
@@ -348,6 +353,7 @@ def main():
                 st.session_state.pop("filter_providers", None)
                 st.session_state.pop("filter_models", None)
                 st.session_state.pop("filter_date_range", None)
+                st.session_state.pop("filter_time_bucket", None)
                 st.session_state["toast_msg"] = "All filters reset to defaults!"
                 st.rerun()
 
