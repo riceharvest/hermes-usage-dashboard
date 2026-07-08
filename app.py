@@ -548,13 +548,40 @@ def main():
 
     with tab_logs:
         st.subheader("📋 Session Logs")
-        st.caption("Detailed view of individual execution runs. Sort by cost, date, or token throughput.")
+        st.caption("Detailed view of individual execution runs. Sort by cost, date, or token throughput. Click a row to inspect its token breakdown.")
         session_show = fdf[[
             "started_at", "provider", "model", "non_cached_input", "cached_input", "output", "total_tokens", "cost_usd"
         ]].copy()
         session_show.columns = ["Started At", "Provider", "Model", "Non-cached in", "Cached in", "Output", "Total tok", "Cost (OR)"]
         session_show = session_show.sort_values("Started At", ascending=False)
-        st.dataframe(session_show, width="stretch", hide_index=True, column_config=SHARED_COLUMN_CONFIG)
+        
+        selected = st.dataframe(
+            session_show,
+            width="stretch",
+            hide_index=True,
+            column_config=SHARED_COLUMN_CONFIG,
+            selection_mode="single-row",
+            on_select="rerun"
+        )
+        
+        selected_rows = selected.get("selection", {}).get("rows", [])
+        if selected_rows:
+            idx = selected_rows[0]
+            row_data = session_show.iloc[idx]
+            st.markdown("---")
+            st.markdown("### 🔍 Session Detail Inspector")
+            col_d1, col_d2, col_d3 = st.columns(3)
+            with col_d1:
+                st.markdown(f"🗓️ **Started At**: `{row_data['Started At']}`")
+                st.markdown(f"☁️ **Provider**: `{row_data['Provider']}`")
+                st.markdown(f"🤖 **Model**: `{row_data['Model']}`")
+            with col_d2:
+                st.markdown(f"📥 **Non-cached Input**: `{row_data['Non-cached in']:,}` tokens")
+                st.markdown(f"💾 **Cached Input**: `{row_data['Cached in']:,}` tokens")
+                st.markdown(f"📤 **Output**: `{row_data['Output']:,}` tokens")
+            with col_d3:
+                st.markdown(f"📊 **Total Tokens**: `{row_data['Total tok']:,}` tokens")
+                st.markdown(f"💵 **Estimated Cost**: `{fmt_usd(row_data['Cost (OR)'])}`")
 
     with tab_catalog:
         st.subheader("📖 Model Price Catalog")
