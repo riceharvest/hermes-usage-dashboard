@@ -688,9 +688,22 @@ def main():
                 "Total Est. Cost": est_cost,
             })
             
+        model_options = sorted(prices.keys())
+        selected_compare_models = st.multiselect(
+            "Select specific models to compare",
+            options=model_options,
+            default=[],
+            placeholder="Search/Select specific models... (leave empty to show top 10 cheapest)",
+            key="calc_models_select"
+        )
+            
         calc_df = pd.DataFrame(calc_rows)
         if not calc_df.empty:
-            calc_df = calc_df.sort_values("Total Est. Cost").head(10)
+            if selected_compare_models:
+                calc_df = calc_df[calc_df["Model ID"].isin(selected_compare_models)]
+                calc_df = calc_df.sort_values("Total Est. Cost")
+            else:
+                calc_df = calc_df.sort_values("Total Est. Cost").head(10)
             CALC_COLUMN_CONFIG = {
                 "Model ID": st.column_config.TextColumn("Model ID"),
                 "Prompt Port": st.column_config.NumberColumn("Prompt Portion", format="$%.4f"),
