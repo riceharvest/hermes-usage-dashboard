@@ -294,6 +294,15 @@ def main():
 
             rng = st.date_input("From / to", value=target_val, min_value=dmin, max_value=dmax)
             auto_refresh = st.checkbox("Auto-refresh (60s)", value=False)
+            
+            st.divider()
+            st.subheader("📁 Database Diagnostics")
+            db_resolved_path = usage_loader._resolve_db_path(db_path)
+            db_sz_mb = 0.0
+            if os.path.exists(db_resolved_path):
+                db_sz_mb = os.path.getsize(db_resolved_path) / (1024 * 1024)
+            st.metric("Total Sessions", f"{len(rows):,}")
+            st.metric("Database File Size", f"{db_sz_mb:.1f} MB")
 
         autorefresh_handler(auto_refresh)
 
