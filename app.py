@@ -772,6 +772,20 @@ def main():
             else:
                 st.info("No pricing data to show average cost trend.")
 
+            st.subheader("📉 Blended Cost per 1K Tokens over time")
+            st.caption("Blended rate: (total_cost / total_tokens * 1000) for priced sessions. Lower is more token-efficient.")
+            priced_df = fdf[fdf["priced"]]
+            if not priced_df.empty:
+                # Group by time and aggregate sum of cost & sum of tokens
+                blended_agg = priced_df.groupby(pk_time).agg(tot_c=("cost_usd", "sum"), tot_t=("total_tokens", "sum"))
+                blended = blended_agg.apply(lambda r: (r["tot_c"] / r["tot_t"] * 1000) if r["tot_t"] > 0 else 0.0, axis=1).sort_index()
+                if not blended.empty:
+                    st.line_chart(blended, width="stretch")
+                else:
+                    st.info("Not enough token data to show blended cost trend.")
+            else:
+                st.info("No pricing data to show blended cost trend.")
+
         # ── SUB-TAB 2: Caching & Efficiency ──
         with sub_tab_cache:
             st.subheader("🎯 Cache hit-rate by model")
