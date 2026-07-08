@@ -140,6 +140,13 @@ def build_dataframe(rows, prices, overrides=None):
                 "cost_status": r.cost_status,
             }
         )
+    if not recs:
+        return pd.DataFrame(columns=[
+            "provider", "model", "started_at", "non_cached_input", "cached_input",
+            "cache_write", "output", "reasoning", "total_tokens", "cost_usd",
+            "cost_non_cached_input", "cost_cached_input", "cost_cache_write", "cost_output",
+            "priced", "cost_status", "date", "week", "month"
+        ])
     df = pd.DataFrame(recs)
     df["date"] = df["started_at"].dt.strftime("%Y-%m-%d")
     df["week"] = df["started_at"].apply(lambda d: f"{d.isocalendar()[0]}-W{d.isocalendar()[1]:02d}")
@@ -182,6 +189,11 @@ def fmt_tokens(n):
 def fmt_usd(n):
     if n is None:
         return "—"
+    n = float(n)
+    if n == 0.0:
+        return "$0.00"
+    if n < 0.01:
+        return f"${n:.4f}"
     return f"${n:,.2f}"
 
 
@@ -189,12 +201,12 @@ SHARED_COLUMN_CONFIG = {
     "Provider": st.column_config.TextColumn("Provider"),
     "Model": st.column_config.TextColumn("Model"),
     "Sessions": st.column_config.NumberColumn("Sessions", format="%d"),
-    "Non-cached in": st.column_config.NumberColumn("Non-cached in", format="%,d"),
-    "Cached in": st.column_config.NumberColumn("Cached in", format="%,d"),
-    "Cache write": st.column_config.NumberColumn("Cache write", format="%,d"),
-    "Output": st.column_config.NumberColumn("Output", format="%,d"),
-    "Total tok": st.column_config.NumberColumn("Total tok", format="%,d"),
-    "Cost (OR)": st.column_config.NumberColumn("Cost (OR)", format="$%,.2f"),
+    "Non-cached in": st.column_config.NumberColumn("Non-cached in", format="%d"),
+    "Cached in": st.column_config.NumberColumn("Cached in", format="%d"),
+    "Cache write": st.column_config.NumberColumn("Cache write", format="%d"),
+    "Output": st.column_config.NumberColumn("Output", format="%d"),
+    "Total tok": st.column_config.NumberColumn("Total tok", format="%d"),
+    "Cost (OR)": st.column_config.NumberColumn("Cost (OR)", format="$%.4f"),
     "% cost": st.column_config.NumberColumn("% cost", format="%.1f%%"),
     "Priced": st.column_config.NumberColumn("Priced", format="%d"),
     "Daily": st.column_config.TextColumn("Daily"),
@@ -212,6 +224,10 @@ def autorefresh_handler(enabled: bool):
 def main():
     st.set_page_config(page_title="Hermes Usage", layout="wide", page_icon="📊")
     st.markdown(MATERIAL_CSS, unsafe_allow_html=True)
+
+    if "toast_msg" in st.session_state:
+        st.toast(st.session_state["toast_msg"], icon="✅")
+        del st.session_state["toast_msg"]
 
     st.title("📊 Hermes Token Usage Dashboard")
     st.caption("Local-only · reads ~/.hermes/state.db · priced with cheapest OpenRouter rates")
@@ -236,7 +252,16 @@ def main():
 
     # ── Load ─────────────────────────────────────────────────────────────
     with st.spinner("Loading…"):
-        rows = load_data(db_path)
+        try:
+            rows = load_data(db_path)
+        except FileNotFoundError as e:
+            st.error(f"⚠️ **Database File Not Found**: {str(e)}")
+            st.info("Please verify the database path in the sidebar, or ensure your Hermes instance is running and has generated `state.db`.")
+            return
+        except Exception as e:
+            st.error(f"⚠️ **Failed to load database**: {str(e)}")
+            return
+
         if not rows:
             st.warning("No session data found in state.db.")
             return
@@ -361,6 +386,10 @@ def main():
             hole=0.4,
             color_discrete_sequence=["#26a69a", "#4db6ac", "#80cbc4", "#00796b"],
         )
+        fig_tok.update_traces(
+            textinfo='percent+label',
+            hovertemplate="<b>%{label}</b><br>Tokens: %{value:,.0f}<br>Percentage: %{percent:.1%}<extra></extra>"
+        )
         fig_tok.update_layout(
             margin=dict(t=20, b=10, l=10, r=10),
             legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
@@ -388,6 +417,10 @@ def main():
             hole=0.4,
             color_discrete_sequence=["#26a69a", "#4db6ac", "#80cbc4", "#00796b"],
         )
+        fig_cost.update_traces(
+            textinfo='percent+label',
+            hovertemplate="<b>%{label}</b><br>Cost: $%{value:,.4f}<br>Percentage: %{percent:.1%}<extra></extra>"
+        )
         fig_cost.update_layout(
             margin=dict(t=20, b=10, l=10, r=10),
             legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
@@ -405,6 +438,9 @@ def main():
             labels={"provider": "Provider", "cost_usd": "Cost (USD)"},
             color="cost_usd",
             color_continuous_scale="Teal",
+        )
+        fig_prov.update_traces(
+            hovertemplate="<b>%{x}</b><br>Cost: $%{y:,.4f}<extra></extra>"
         )
         fig_prov.update_layout(
             margin=dict(t=20, b=10, l=10, r=10),
@@ -477,18 +513,24 @@ def main():
             st.dataframe(show, width="stretch", hide_index=True, column_config=SHARED_COLUMN_CONFIG)
 
     with tab_topn:
-        topn = st.slider("Top N models", 3, 15, 5)
-        model_cost = fdf.groupby("model")["cost_usd"].sum().sort_values(ascending=False)
+        col_n1, col_n2 = st.columns([1, 2])
+        with col_n1:
+            topn = st.slider("Top N models", 3, 15, 5)
+        with col_n2:
+            metric_choice = st.radio("Metric to plot", ["Cost (USD)", "Token Volume"], horizontal=True, key="topn_metric")
+            
+        val_col = "cost_usd" if metric_choice == "Cost (USD)" else "total_tokens"
+        model_cost = fdf.groupby("model")[val_col].sum().sort_values(ascending=False)
         top_models = list(model_cost.head(topn).index)
         if top_models:
             pk = {"daily": "date", "weekly": "week", "monthly": "month", "all": "date"}[period]
             sub = fdf[fdf["model"].isin(top_models)]
-            piv = sub.pivot_table(index=pk, columns="model", values="cost_usd", aggfunc="sum").fillna(0)
+            piv = sub.pivot_table(index=pk, columns="model", values=val_col, aggfunc="sum").fillna(0)
             piv = piv.sort_index()
             # Escape colons in column names to prevent Altair parsing crashes
             piv.columns = [str(c).replace(":", " - ") for c in piv.columns]
             st.line_chart(piv, width="stretch")
-            st.caption("Estimated cost (USD) per top model over time — narrow with the date-range filter.")
+            st.caption(f"{metric_choice} per top model over time — narrow with the date-range filter.")
         else:
             st.info("No priced models in the current filter.")
 
@@ -557,7 +599,7 @@ def main():
             st.subheader("⚡ Avg cost per session over time")
             st.caption("Efficiency: estimated cost per session. Rising = each run getting pricier.")
             pk_time = {"daily": "date", "weekly": "week", "monthly": "month", "all": "date"}[period]
-            cps = fdf[fdf["cost_usd"].notna()].groupby(pk_time)["cost_usd"].mean().sort_index()
+            cps = fdf[fdf["priced"]].groupby(pk_time)["cost_usd"].mean().sort_index()
             if not cps.empty:
                 st.line_chart(cps, width="stretch")
             else:
@@ -619,19 +661,18 @@ def main():
             st.subheader("💸 Cost vs cache hit-rate (per model)")
             st.caption("Each point = a model. Top-right = cheap AND well-cached.")
             if not cr.empty:
-                scatter = cr.copy()
-                cost_by_model = fdf.groupby("model")["cost_usd"].sum()
-                scatter["cost"] = scatter["model"].map(cost_by_model)
-                scatter = scatter.dropna(subset=["cost"])
+                cost_by_model = fdf.groupby(["provider", "model"])["cost_usd"].sum().reset_index()
+                scatter = pd.merge(cr, cost_by_model, on=["provider", "model"])
+                scatter = scatter.dropna(subset=["cost_usd"])
                 if not scatter.empty:
                     fig2 = px.scatter(
                         scatter,
                         x="hit_rate",
-                        y="cost",
+                        y="cost_usd",
                         text="model",
-                        size=cost_by_model[scatter["model"]].values,
+                        size="cost_usd",
                         color="provider",
-                        labels={"hit_rate": "Cache Hit-Rate %", "cost": "Est. Cost (USD)"},
+                        labels={"hit_rate": "Cache Hit-Rate %", "cost_usd": "Est. Cost (USD)"},
                         size_max=40,
                     )
                     fig2.update_traces(textposition="top center", marker=dict(opacity=0.7))
@@ -727,13 +768,16 @@ def main():
             new_overrides = dict(overrides)
             if choice:
                 new_overrides[target] = choice
+                st.session_state["toast_msg"] = f"Mapped '{target}' to '{choice}'"
             elif target in new_overrides:
                 del new_overrides[target]
+                st.session_state["toast_msg"] = f"Removed mapping for '{target}'"
             pricing.save_overrides(new_overrides)
             st.rerun()
         if c2.button("Clear mapping") and target in overrides:
             new_overrides = dict(overrides)
             del new_overrides[target]
+            st.session_state["toast_msg"] = f"Cleared mapping for '{target}'"
             pricing.save_overrides(new_overrides)
             st.rerun()
 
