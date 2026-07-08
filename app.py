@@ -306,6 +306,21 @@ def main():
             st.subheader("📅 Date range")
             dmin = datetime.fromtimestamp(min(r.started_at for r in rows), tz=timezone.utc).date()
             dmax = datetime.fromtimestamp(max(r.started_at for r in rows), tz=timezone.utc).date()
+            
+            # Reactively update the date range preset when the Time Bucket selection explicitly changes
+            current_bucket = st.session_state.get("filter_time_bucket", "daily")
+            prev_bucket = st.session_state.get("prev_time_bucket", "")
+            if current_bucket != prev_bucket:
+                st.session_state["prev_time_bucket"] = current_bucket
+                if current_bucket == "daily":
+                    st.session_state["filter_date_range"] = (max(dmin, dmax - timedelta(days=6)), dmax)
+                elif current_bucket == "weekly":
+                    st.session_state["filter_date_range"] = (max(dmin, dmax - timedelta(days=29)), dmax)
+                elif current_bucket == "monthly":
+                    st.session_state["filter_date_range"] = (max(dmin, dmax - timedelta(days=89)), dmax)
+                else: # "all"
+                    st.session_state["filter_date_range"] = (dmin, dmax)
+            
             if "filter_date_range" not in st.session_state:
                 st.session_state["filter_date_range"] = (dmin, dmax)
             else:
