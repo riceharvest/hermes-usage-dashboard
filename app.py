@@ -113,12 +113,17 @@ def build_dataframe(rows, prices, overrides=None):
             cost_cached = r.cache_read_tokens * price.cache_read
             cost_write = r.cache_write_tokens * price.cache_write
             cost_out = r.output_tokens * price.completion
+            if price.cache_read < price.prompt:
+                savings = r.cache_read_tokens * (price.prompt - price.cache_read)
+            else:
+                savings = 0.0
         else:
             cost = 0.0
             cost_non_cached = 0.0
             cost_cached = 0.0
             cost_write = 0.0
             cost_out = 0.0
+            savings = 0.0
 
         recs.append(
             {
@@ -136,6 +141,7 @@ def build_dataframe(rows, prices, overrides=None):
                 "cost_cached_input": cost_cached,
                 "cost_cache_write": cost_write,
                 "cost_output": cost_out,
+                "savings_usd": savings,
                 "priced": price is not None,
                 "cost_status": r.cost_status,
             }
@@ -145,7 +151,7 @@ def build_dataframe(rows, prices, overrides=None):
             "provider", "model", "started_at", "non_cached_input", "cached_input",
             "cache_write", "output", "reasoning", "total_tokens", "cost_usd",
             "cost_non_cached_input", "cost_cached_input", "cost_cache_write", "cost_output",
-            "priced", "cost_status", "date", "week", "month"
+            "savings_usd", "priced", "cost_status", "date", "week", "month"
         ])
     df = pd.DataFrame(recs)
     df["date"] = df["started_at"].dt.strftime("%Y-%m-%d")
@@ -212,6 +218,7 @@ SHARED_COLUMN_CONFIG = {
     "Daily": st.column_config.TextColumn("Daily"),
     "Weekly": st.column_config.TextColumn("Weekly"),
     "Monthly": st.column_config.TextColumn("Monthly"),
+    "Started At": st.column_config.DatetimeColumn("Started At", format="YYYY-MM-DD HH:mm:ss"),
 }
 
 
@@ -348,15 +355,19 @@ def main():
     tot_out = fdf["output"].sum()
     tot_all = fdf["total_tokens"].sum()
     tot_cost = fdf["cost_usd"].sum()
+    tot_savings = fdf["savings_usd"].sum()
     priced_cost = fdf[fdf["priced"]]["cost_usd"].sum()
     unpriced = int((~fdf["priced"]).sum())
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    hit_rate = (tot_cached / (tot_cached + tot_noncached) * 100) if (tot_cached + tot_noncached) > 0 else 0.0
+
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Non-cached input", fmt_tokens(tot_noncached))
     c2.metric("Cached input", fmt_tokens(tot_cached))
     c3.metric("Output", fmt_tokens(tot_out))
-    c4.metric("Total tokens", fmt_tokens(tot_all))
+    c4.metric("Cache Hit Rate", f"{hit_rate:.1f}%")
     c5.metric("Est. cost (OR)", fmt_usd(tot_cost))
+    c6.metric("Realized Savings", fmt_usd(tot_savings))
 
     if unpriced:
         st.info(
@@ -452,8 +463,8 @@ def main():
     st.divider()
 
     # ── Tabs ─────────────────────────────────────────────────────────────
-    tab_prov, tab_model, tab_period, tab_topn, tab_insights = st.tabs(
-        ["By Provider", "By Model", "By Period", "Top-N Trend", "Insights"]
+    tab_prov, tab_model, tab_period, tab_topn, tab_logs, tab_catalog, tab_insights = st.tabs(
+        ["By Provider", "By Model", "By Period", "Top-N Trend", "Session Logs", "Model Catalog", "Insights"]
     )
 
     with tab_prov:
@@ -534,6 +545,42 @@ def main():
         else:
             st.info("No priced models in the current filter.")
 
+    with tab_logs:
+        st.subheader("📋 Session Logs")
+        st.caption("Detailed view of individual execution runs. Sort by cost, date, or token throughput.")
+        session_show = fdf[[
+            "started_at", "provider", "model", "non_cached_input", "cached_input", "output", "total_tokens", "cost_usd"
+        ]].copy()
+        session_show.columns = ["Started At", "Provider", "Model", "Non-cached in", "Cached in", "Output", "Total tok", "Cost (OR)"]
+        session_show = session_show.sort_values("Started At", ascending=False)
+        st.dataframe(session_show, width="stretch", hide_index=True, column_config=SHARED_COLUMN_CONFIG)
+
+    with tab_catalog:
+        st.subheader("📖 Model Price Catalog")
+        st.caption("Reference list of cached OpenRouter model prices per 1 million tokens. Prices are cached locally.")
+        catalog_data = []
+        for model_id, p in prices.items():
+            catalog_data.append({
+                "Model ID": model_id,
+                "Prompt ($/1M)": p.prompt * 1e6,
+                "Completion ($/1M)": p.completion * 1e6,
+                "Cache Read ($/1M)": p.cache_read * 1e6,
+                "Cache Write ($/1M)": p.cache_write * 1e6,
+            })
+        catalog_df = pd.DataFrame(catalog_data)
+        if not catalog_df.empty:
+            catalog_df = catalog_df.sort_values("Model ID")
+            CATALOG_COLUMN_CONFIG = {
+                "Model ID": st.column_config.TextColumn("Model ID"),
+                "Prompt ($/1M)": st.column_config.NumberColumn("Prompt ($/1M)", format="$%.2f"),
+                "Completion ($/1M)": st.column_config.NumberColumn("Completion ($/1M)", format="$%.2f"),
+                "Cache Read ($/1M)": st.column_config.NumberColumn("Cache Read ($/1M)", format="$%.2f"),
+                "Cache Write ($/1M)": st.column_config.NumberColumn("Cache Write ($/1M)", format="$%.2f"),
+            }
+            st.dataframe(catalog_df, width="stretch", hide_index=True, column_config=CATALOG_COLUMN_CONFIG)
+        else:
+            st.info("No pricing models catalog loaded.")
+
     with tab_insights:
         sub_tab_cost, sub_tab_cache, sub_tab_activity = st.tabs([
             "💰 Cost & Savings", 
@@ -562,14 +609,7 @@ def main():
 
             st.subheader("💰 Cached-input savings ($)")
             st.caption("What you'd have paid at full input price minus what caching cost. Bigger = caching pays off.")
-            def _savings(row):
-                p = pricing.price_for(row["model"], prices, overrides)
-                if p is None or p.cache_read >= p.prompt:
-                    return 0.0
-                return row["cached_input"] * (p.prompt - p.cache_read)
-            fdf2 = fdf.copy()
-            fdf2["savings"] = fdf2.apply(_savings, axis=1)
-            sav_total = fdf2["savings"].sum()
+            sav_total = fdf["savings_usd"].sum()
             
             # Show savings metrics side-by-side with bar chart
             col_sav1, col_sav2 = st.columns([1, 2])
@@ -577,7 +617,7 @@ def main():
                 st.metric("Total Cached-Input Savings", fmt_usd(sav_total))
             with col_sav2:
                 sav_by_provider = (
-                    fdf2.groupby("provider")["savings"].sum().sort_values(ascending=False)
+                    fdf.groupby("provider")["savings_usd"].sum().sort_values(ascending=False)
                 )
                 st.bar_chart(sav_by_provider, width="stretch")
                 st.caption("Cached-input savings by provider (USD)")
