@@ -286,15 +286,32 @@ def main():
         st.warning("No session data found in state.db matching date filter.")
         return
 
-    # ── Provider / model filter ──────────────────────────────────────────
-    providers = sorted(df["provider"].unique())
-    sel_providers = st.multiselect("Providers", providers, default=providers)
-    fdf = df[df["provider"].isin(sel_providers)] if sel_providers else df
+    # ── Provider & Model Selection Flow (Cascading) ──────────────────────
+    col_f1, col_f2 = st.columns(2)
+    
+    with col_f1:
+        providers = sorted(df["provider"].unique())
+        sel_providers = st.multiselect(
+            "Filter by Provider",
+            options=providers,
+            default=[],
+            placeholder="All Providers",
+            help="Select one or more providers to filter. Leave empty to show all."
+        )
+        fdf = df[df["provider"].isin(sel_providers)] if sel_providers else df
 
-    models = sorted(fdf["model"].unique())
-    sel_models = st.multiselect("Models", models, default=models)
-    if sel_models:
-        fdf = fdf[fdf["model"].isin(sel_models)]
+    with col_f2:
+        # Cascading options: only show models available for the selected providers
+        models = sorted(fdf["model"].unique())
+        sel_models = st.multiselect(
+            "Filter by Model",
+            options=models,
+            default=[],
+            placeholder="All Models",
+            help="Select one or more models to filter. Leave empty to show all."
+        )
+        if sel_models:
+            fdf = fdf[fdf["model"].isin(sel_models)]
 
     if fdf.empty:
         st.info("No data matches the selected filters. Please adjust your Provider / Model / Date Range filters.")
