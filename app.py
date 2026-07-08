@@ -611,16 +611,25 @@ def main():
             st.dataframe(show, width="stretch", hide_index=True, column_config=SHARED_COLUMN_CONFIG)
 
             # Trend lines: total tokens & cost over period (split scales!)
-            st.subheader(f"{period.capitalize()} Trend")
-            trend = agg(fdf, [pk]).sort_values(pk)
-            tchart = trend[[pk, "total_tokens", "cost_usd"]].set_index(pk)
+            trend_pk = pk
+            trend_label = period.capitalize()
+            test_trend = agg(fdf, [pk])
+            if len(test_trend) < 3 and pk != "date":
+                trend_pk = "date"
+                trend_label = "Daily (automatic fallback for trend detail)"
+                trend = agg(fdf, ["date"]).sort_values("date")
+            else:
+                trend = test_trend.sort_values(pk)
+                
+            st.subheader(f"{trend_label} Trend")
+            tchart = trend[[trend_pk, "total_tokens", "cost_usd"]].set_index(trend_pk)
             
             col_t1, col_t2 = st.columns(2)
             with col_t1:
                 st.markdown("##### Total Tokens")
                 st.line_chart(tchart["total_tokens"], width="stretch")
             with col_t2:
-                st.markdown("##### Estimated Cost ($)")
+                st.markdown(f"##### Estimated Cost ({symbol})")
                 st.line_chart(tchart["cost_usd"], width="stretch")
         else:
             show = g[["provider", "sessions", "total_tokens", "cost_usd"]].copy()
@@ -638,14 +647,19 @@ def main():
         model_cost = fdf.groupby("model")[val_col].sum().sort_values(ascending=False)
         top_models = list(model_cost.head(topn).index)
         if top_models:
-            pk = {"daily": "date", "weekly": "week", "monthly": "month", "all": "date"}[period]
+            pk_trend = {"daily": "date", "weekly": "week", "monthly": "month", "all": "date"}[period]
             sub = fdf[fdf["model"].isin(top_models)]
-            piv = sub.pivot_table(index=pk, columns="model", values=val_col, aggfunc="sum").fillna(0)
-            piv = piv.sort_index()
-            # Escape colons in column names to prevent Altair parsing crashes
-            piv.columns = [str(c).replace(":", " - ") for c in piv.columns]
-            st.line_chart(piv, width="stretch")
-            st.caption(f"{metric_choice} per top model over time — narrow with the date-range filter.")
+            test_piv = sub.pivot_table(index=pk_trend, columns="model", values=val_col, aggfunc="sum").fillna(0)
+            if len(test_piv) < 3 and pk_trend != "date":
+                piv = sub.pivot_table(index="date", columns="model", values=val_col, aggfunc="sum").fillna(0)
+                piv.columns = [str(c).replace(":", " - ") for c in piv.columns]
+                st.line_chart(piv, width="stretch")
+                st.caption(f"{metric_choice} per top model over time (grouped by day for detail) — narrow with the date-range filter.")
+            else:
+                piv = test_piv.sort_index()
+                piv.columns = [str(c).replace(":", " - ") for c in piv.columns]
+                st.line_chart(piv, width="stretch")
+                st.caption(f"{metric_choice} per top model over time ({period}) — narrow with the date-range filter.")
         else:
             st.info("No priced models in the current filter.")
 
@@ -1053,7 +1067,13 @@ def main():
             st.subheader("🔥 Activity volume")
             st.caption("Daily usage volume showing count of sessions and total token throughput.")
             pk_time = {"daily": "date", "weekly": "week", "monthly": "month", "all": "date"}[period]
-            act = fdf.groupby(pk_time).agg(sessions=("model", "size"), tokens=("total_tokens", "sum")).sort_index()
+            test_act = fdf.groupby(pk_time).agg(sessions=("model", "size"), tokens=("total_tokens", "sum")).sort_index()
+            if len(test_act) < 3 and pk_time != "date":
+                pk_time = "date"
+                act = fdf.groupby("date").agg(sessions=("model", "size"), tokens=("total_tokens", "sum")).sort_index()
+                st.caption("ℹ️ Trend lines automatically grouped by day to provide enough details.")
+            else:
+                act = test_act
             
             col_act1, col_act2 = st.columns(2)
             with col_act1:
