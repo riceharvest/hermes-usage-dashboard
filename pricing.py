@@ -13,7 +13,7 @@ import os
 import threading
 import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Optional
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -80,7 +80,7 @@ def _save_cache_file(prices: dict[str, Price]) -> None:
         os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
         with open(CACHE_PATH, "w") as f:
             json.dump(
-                {"prices": {k: dict(v._asdict()) for k, v in prices.items()}},
+                {"prices": {k: asdict(v) for k, v in prices.items()}},
                 f,
             )
     except Exception:
